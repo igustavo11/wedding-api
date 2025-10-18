@@ -16,6 +16,7 @@
   "type": "module",
   "devDependencies": {
     "@types/node": "^24.7.0",
+    "@types/pg": "^8.15.5",
     "drizzle-kit": "^0.31.5",
     "ts-node": "^10.9.2",
     "ts-node-dev": "^2.0.0",
@@ -27,6 +28,7 @@
     "drizzle-orm": "^0.44.6",
     "fastify": "^5.6.1",
     "fastify-cors": "^6.0.3",
-    "pg": "^8.16.3"
+    "pg": "^8.16.3",
+    "zod": "^4.1.12"
   }
 }
