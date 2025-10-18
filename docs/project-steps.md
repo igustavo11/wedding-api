@@ -249,6 +249,3 @@ npm install -D vitest @vitest/ui
 - Fazer commits semânticos
 - Criar migrations para mudanças no banco
 
----
-
-**Última atualização:** 17 de

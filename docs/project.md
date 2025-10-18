@@ -1,5 +1,3 @@
-Estou desenvolvendo o backend de uma aplicação de casamento semelhante ao Casar.com, utilizando Node.js, Fastify, Drizzle ORM e PostgreSQL.
-O objetivo é permitir a criação e gestão de listas de presentes, confirmação de presença de convidados e gerenciamento administrativo de pagamentos.
 
 Principais funcionalidades do sistema:
 
