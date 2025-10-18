@@ -61,10 +61,23 @@ export async function guestsRoutes(app: FastifyInstance) {
     {
       schema: {
         tags: ['guests'],
+        description: 'Confirmar/desconfirmar presença de membros da família',
         body: {
           type: 'object',
+          required: ['phone', 'confirmations'],
           properties: {
-            guestIds: { type: 'array', items: { type: 'number' } },
+            phone: { type: 'string', description: 'Telefone da família' },
+            confirmations: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  id: { type: 'number' },
+                  confirmed: { type: 'boolean' },
+                },
+              },
+              description: 'Lista: [{id: 1, confirmed: true}, ...]',
+            },
           },
         },
       },
@@ -72,11 +85,21 @@ export async function guestsRoutes(app: FastifyInstance) {
     async (request: FastifyRequest, reply: FastifyReply) => {
       try {
         const schema = z.object({
-          guestIds: z.array(z.number()).min(1),
+          phone: z.string().min(10),
+          confirmations: z.array(
+            z.object({
+              id: z.number(),
+              confirmed: z.boolean(),
+            })
+          ),
         });
 
-        const { guestIds } = schema.parse(request.body);
-        const result = await guestsService.confirmGuests(guestIds);
+        const { phone, confirmations } = schema.parse(request.body);
+        const result = await guestsService.confirmByPhone(phone, confirmations);
+
+        if (!result) {
+          return reply.code(404).send({ error: 'No guests found with this phone number' });
+        }
 
         return reply.send(result);
       } catch (error) {

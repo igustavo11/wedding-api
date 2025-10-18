@@ -63,6 +63,34 @@ class GuestsService {
       count: guestIds.length,
     };
   }
+
+  async confirmByPhone(phone: string, confirmations: { id: number; confirmed: boolean }[]) {
+    const family = await db.select().from(guests).where(eq(guests.phone, phone));
+
+    if (family.length === 0) {
+      return null;
+    }
+    const updated = [];
+    for (const confirmation of confirmations) {
+      const [result] = await db
+        .update(guests)
+        .set({
+          confirmed: confirmation.confirmed,
+          confirmationDate: confirmation.confirmed ? new Date() : null,
+        })
+        .where(eq(guests.id, confirmation.id))
+        .returning();
+
+      updated.push(result);
+    }
+
+    return {
+      message: 'Guest confirmations updated successfully',
+      phone,
+      count: confirmations.length,
+      guests: updated,
+    };
+  }
 }
 
 export const guestsService = new GuestsService();
