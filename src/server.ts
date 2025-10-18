@@ -3,8 +3,10 @@ import multipart from '@fastify/multipart';
 import Fastify from 'fastify';
 import { env } from './config/env';
 import { routes } from './routes';
+import { setupSwagger } from './swagger/swagger';
 
 const app = Fastify({ logger: true });
+await setupSwagger(app);
 
 // Plugin de CORS
 app.register(cors, {
