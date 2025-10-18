@@ -1,29 +1,32 @@
-import fastify from "fastify";
-import cors from "@fastify/cors";
-import { env } from "./config/env";
+import cors from '@fastify/cors';
+import multipart from '@fastify/multipart';
+import Fastify from 'fastify';
+import { env } from './config/env';
+import { routes } from './routes';
 
-function buildServer() {
-    const app = fastify({ logger: false });
-    app.register(cors, {
-        origin: true,
-    });
-    app.get("/health", async (request, reply) => {
-        return reply.status(200).send({message: "server running"})
-    });
-    return app;
-}
+const app = Fastify({ logger: true });
 
-async function startServer(){
-    const app = buildServer();
-    try {
-        await app.listen({
-            port: env.PORT,
-            host: '0.0.0.0'
-        });
-        console.log(`Server listening on port ${env.PORT}`);
-    } catch(error){
-        app.log.error(error);
-        process.exit(1);
-    }
-}
-startServer();
+// Plugin de CORS
+app.register(cors, {
+  origin: true,
+});
+
+// Plugin para upload de arquivos
+app.register(multipart);
+
+// Registrar todas as rotas
+app.register(routes);
+
+// Health check
+app.get('/health', async () => {
+  return { status: 'ok', timestamp: new Date().toISOString() };
+});
+
+// Iniciar o servidor
+app.listen({ port: env.PORT, host: '0.0.0.0' }, (err, address) => {
+  if (err) {
+    app.log.error(err);
+    process.exit(1);
+  }
+  console.log(` Server running at ${address}`);
+});
