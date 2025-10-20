@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
+import { authMiddleware } from '../middlewares/auth';
 import { guestsService } from '../services/guests';
 
 export async function guestsRoutes(app: FastifyInstance) {
@@ -7,6 +8,7 @@ export async function guestsRoutes(app: FastifyInstance) {
   app.post(
     '/guests/import',
     {
+      preHandler: [authMiddleware],
       schema: {
         tags: ['guests'],
         description: 'CSV format: name,phone,age_group',

@@ -6,4 +6,6 @@ export const env = {
   DB_USER: process.env.DB_USER || 'postgres',
   DB_PASSWORD: process.env.DB_PASSWORD || 'postgres',
   DB_NAME: process.env.DB_NAME || 'wedding',
+  BETTER_AUTH_SECRET: process.env.BETTER_AUTH_SECRET || '',
+  BETTER_AUTH_URL: process.env.BETTER_AUTH_URL || 'http://localhost:3338',
 };
