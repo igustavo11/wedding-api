@@ -249,3 +249,8 @@ npm install -D vitest @vitest/ui
 - Fazer commits semânticos
 - Criar migrations para mudanças no banco
 
+proximos Passos
+Autenticação com Better Auth funcionando
+⏳ Criar endpoints para gerenciar presentes (CRUD protegido)
+⏳ Criar endpoints para visualizar convidados confirmados
+⏳ Integrar com gateway de pagamentos (Stripe/Mercado Pago)
