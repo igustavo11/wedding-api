@@ -30,7 +30,7 @@ export async function authMiddleware(
       return reply.status(401).send({ message: "Invalid token" });
     }
 
-    const { session: userSession, user: userData } = sessionData[0];
+    const { session: userSession, user: userData } = sessionData[0]!;
 
     // Check if session is expired
     if (new Date(userSession.expiresAt) < new Date()) {

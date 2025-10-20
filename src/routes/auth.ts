@@ -38,18 +38,16 @@ export async function authRoutes(app: FastifyInstance) {
           },
         });
 
-        // Set the session token as httpOnly cookie
         if (result.token) {
           reply.setCookie("better-auth.session_token", result.token, {
             httpOnly: true,
             secure: process.env.NODE_ENV === "production",
             sameSite: "lax",
             path: "/",
-            maxAge: 60 * 60 * 24 * 7, // 7 days
+            maxAge: 60 * 60 * 24 * 7,
           });
         }
 
-        // Return only user data, not the token
         return reply.code(201).send({
           user: result.user,
         });
