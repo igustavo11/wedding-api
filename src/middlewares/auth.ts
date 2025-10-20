@@ -1,33 +1,47 @@
-import type { FastifyReply, FastifyRequest } from 'fastify';
-import { auth } from '../lib/auth';
+import type { FastifyReply, FastifyRequest } from "fastify";
+import { eq } from "drizzle-orm";
+import { db } from "../db";
+import { session, user } from "../db/schema";
 
-export async function authMiddleware(request: FastifyRequest, reply: FastifyReply) {
+export async function authMiddleware(
+  request: FastifyRequest,
+  reply: FastifyReply,
+) {
   try {
-    const authHeader = request.headers.authorization;
+    // Read token from cookie instead of Authorization header
+    const token = request.cookies["better-auth.session_token"];
 
-    if (!authHeader) {
-      return reply.status(401).send({ message: 'Unauthorized' });
+    if (!token) {
+      return reply.status(401).send({ message: "Unauthorized" });
     }
 
-    const token = authHeader.replace('Bearer ', '');
+    // Validate session by querying the database
+    const sessionData = await db
+      .select({
+        session: session,
+        user: user,
+      })
+      .from(session)
+      .innerJoin(user, eq(session.userId, user.id))
+      .where(eq(session.token, token))
+      .limit(1);
 
-    //validate session
-
-    const session = await auth.api.getSession({
-      headers: {
-        cookie: `better-auth.session_token=${token}`,
-      },
-    });
-
-    if (!session || !session.user) {
-      return reply.status(401).send({ message: 'Unauthorized' });
+    if (!sessionData || sessionData.length === 0) {
+      return reply.status(401).send({ message: "Invalid token" });
     }
 
-    //attach user to request
-    request.user = session.user;
-    request.session = session.session;
+    const { session: userSession, user: userData } = sessionData[0];
+
+    // Check if session is expired
+    if (new Date(userSession.expiresAt) < new Date()) {
+      return reply.status(401).send({ message: "Session expired" });
+    }
+
+    // Attach user and session to request
+    request.user = userData;
+    request.session = userSession;
   } catch (error) {
-    console.error('Auth Middleware Error:', error);
-    return reply.status(401).send({ message: 'Unauthorized' });
+    console.error("Auth Middleware Error:", error);
+    return reply.status(401).send({ message: "Unauthorized" });
   }
 }
