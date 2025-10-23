@@ -1,8 +1,8 @@
-import type { MultipartFile } from "@fastify/multipart";
-import { eq, and } from "drizzle-orm";
-import { db } from "../db";
-import { guests } from "../db/schema";
-import { parseCSV } from "../ultils/csv-parse";
+import type { MultipartFile } from '@fastify/multipart';
+import { eq } from 'drizzle-orm';
+import { db } from '../db';
+import { guests } from '../db/schema';
+import { parseCSV } from '../ultils/csv-parse';
 
 class GuestsService {
   async importFromCSV(file: MultipartFile) {
@@ -16,25 +16,22 @@ class GuestsService {
           name: record.name,
           phone: record.phone,
           ageGroup: record.ageGroup,
-        })),
+        }))
       )
       .returning();
 
     return {
-      message: "Guests imported successfully",
+      message: 'Guests imported successfully',
       count: inserted.length,
       guests: inserted,
     };
   }
 
   async getFamilyByPhone(phone: string) {
-    const family = await db
-      .select()
-      .from(guests)
-      .where(eq(guests.phone, phone));
+    const family = await db.select().from(guests).where(eq(guests.phone, phone));
 
-    const adults = family.filter((member) => member.ageGroup === "adult");
-    const children = family.filter((member) => member.ageGroup === "child");
+    const adults = family.filter((member) => member.ageGroup === 'adult');
+    const children = family.filter((member) => member.ageGroup === 'child');
 
     return {
       phone,
@@ -62,19 +59,13 @@ class GuestsService {
     }
 
     return {
-      message: "Guests confirmed successfully",
+      message: 'Guests confirmed successfully',
       count: guestIds.length,
     };
   }
 
-  async confirmByPhone(
-    phone: string,
-    confirmations: { id: number; confirmed: boolean }[],
-  ) {
-    const family = await db
-      .select()
-      .from(guests)
-      .where(eq(guests.phone, phone));
+  async confirmByPhone(phone: string, confirmations: { id: number; confirmed: boolean }[]) {
+    const family = await db.select().from(guests).where(eq(guests.phone, phone));
 
     if (family.length === 0) {
       return null;
@@ -94,7 +85,7 @@ class GuestsService {
     }
 
     return {
-      message: "Guest confirmations updated successfully",
+      message: 'Guest confirmations updated successfully',
       phone,
       count: confirmations.length,
       guests: updated,
@@ -102,19 +93,16 @@ class GuestsService {
   }
 
   async getGuestsByStatus(confirmed: boolean) {
-    const guestList = await db
-      .select()
-      .from(guests)
-      .where(eq(guests.confirmed, confirmed));
+    const guestList = await db.select().from(guests).where(eq(guests.confirmed, confirmed));
 
-    const adults = guestList.filter((guest) => guest.ageGroup === "adult");
-    const children = guestList.filter((guest) => guest.ageGroup === "child");
+    const adults = guestList.filter((guest) => guest.ageGroup === 'adult');
+    const children = guestList.filter((guest) => guest.ageGroup === 'child');
 
-    const status = confirmed ? "Confirmed" : "Unconfirmed";
+    const status = confirmed ? 'Confirmed' : 'Unconfirmed';
 
     return {
       message: `${status} guests retrieved successfully`,
-      status: confirmed ? "confirmed" : "unconfirmed",
+      status: confirmed ? 'confirmed' : 'unconfirmed',
       total: guestList.length,
       adults: {
         count: adults.length,
@@ -128,17 +116,32 @@ class GuestsService {
     };
   }
 
+  async listGuests(page = 1, limit = 100) {
+    const offset = (page - 1) * limit;
+    const guestsList = await db.select().from(guests).limit(limit).offset(offset);
+
+    const total = await db
+      .select()
+      .from(guests)
+      .then((rows) => rows.length);
+
+    return {
+      total,
+      page,
+      limit,
+      guests: guestsList,
+    };
+  }
+
   async getConfirmationStats() {
     const allGuests = await db.select().from(guests);
     const confirmed = allGuests.filter((g) => g.confirmed);
     const unconfirmed = allGuests.filter((g) => !g.confirmed);
 
-    const confirmedAdults = confirmed.filter((g) => g.ageGroup === "adult");
-    const confirmedChildren = confirmed.filter((g) => g.ageGroup === "child");
-    const unconfirmedAdults = unconfirmed.filter((g) => g.ageGroup === "adult");
-    const unconfirmedChildren = unconfirmed.filter(
-      (g) => g.ageGroup === "child",
-    );
+    const confirmedAdults = confirmed.filter((g) => g.ageGroup === 'adult');
+    const confirmedChildren = confirmed.filter((g) => g.ageGroup === 'child');
+    const unconfirmedAdults = unconfirmed.filter((g) => g.ageGroup === 'adult');
+    const unconfirmedChildren = unconfirmed.filter((g) => g.ageGroup === 'child');
 
     return {
       total: allGuests.length,
@@ -156,6 +159,53 @@ class GuestsService {
         confirmed: Math.round((confirmed.length / allGuests.length) * 100),
       },
     };
+  }
+
+  // Admin CRUD: create, update, delete
+  async createGuest(payload: { name: string; phone: string; ageGroup: 'adult' | 'child' }) {
+    const [created] = await db
+      .insert(guests)
+      .values({
+        name: payload.name,
+        phone: payload.phone,
+        ageGroup: payload.ageGroup,
+      })
+      .returning();
+
+    return created;
+  }
+
+  async updateGuest(
+    id: number,
+    payload: Partial<{
+      name: string;
+      phone: string;
+      ageGroup: 'adult' | 'child';
+      confirmed: boolean;
+    }>
+  ) {
+    const [updated] = await db
+      .update(guests)
+      .set({
+        ...(payload.name !== undefined ? { name: payload.name } : {}),
+        ...(payload.phone !== undefined ? { phone: payload.phone } : {}),
+        ...(payload.ageGroup !== undefined ? { ageGroup: payload.ageGroup } : {}),
+        ...(payload.confirmed !== undefined
+          ? {
+              confirmed: payload.confirmed,
+              confirmationDate: payload.confirmed ? new Date() : null,
+            }
+          : {}),
+      })
+      .where(eq(guests.id, id))
+      .returning();
+
+    return updated || null;
+  }
+
+  async deleteGuest(id: number) {
+    const [deleted] = await db.delete(guests).where(eq(guests.id, id)).returning();
+    return deleted || null;
   }
 }
 
