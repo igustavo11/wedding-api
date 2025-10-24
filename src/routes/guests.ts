@@ -1,3 +1,4 @@
+import { stringify } from 'csv-stringify/sync';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { authMiddleware } from '../middlewares/auth';
@@ -311,6 +312,39 @@ export async function guestsRoutes(app: FastifyInstance) {
         const limit = Number(q.limit as unknown as number) || 100;
         const result = await guestsService.listGuests(page, limit);
         return reply.send(result);
+      } catch (error) {
+        request.log.error(error);
+        return reply.code(500).send({ error: 'Internal server error' });
+      }
+    }
+  );
+
+  // Export CSV (admin only)
+  app.get(
+    '/guests/export',
+    {
+      preHandler: [authMiddleware],
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const allGuests = await guestsService.listGuests(1, 100000);
+
+        const records = allGuests.guests.map((guest) => ({
+          nome: guest.name,
+          telefone: guest.phone,
+          faixa_etaria: guest.ageGroup === 'adult' ? 'adulto' : 'crianca',
+          confirmado: guest.confirmed ? 'sim' : 'nao',
+        }));
+
+        const csv = stringify(records, {
+          header: true,
+          columns: ['nome', 'telefone', 'faixa_etaria', 'confirmado'],
+        });
+
+        return reply
+          .header('Content-Type', 'text/csv; charset=utf-8')
+          .header('Content-Disposition', 'attachment; filename="convidados.csv"')
+          .send(csv);
       } catch (error) {
         request.log.error(error);
         return reply.code(500).send({ error: 'Internal server error' });
