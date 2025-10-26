@@ -67,15 +67,19 @@ export async function guestsRoutes(app: FastifyInstance) {
     async (request: FastifyRequest, reply: FastifyReply) => {
       try {
         const { phone } = request.params as { phone: string };
-        const family = await guestsService.getFamilyByPhone(phone);
+        request.log.info({ phone }, 'Searching for family by phone');
 
-        if (!family.total) {
+        const family = await guestsService.getFamilyByPhone(phone);
+        request.log.info({ phone, total: family.total }, 'Family search result');
+
+        if (!family || !family.total || family.total === 0) {
+          request.log.warn({ phone }, 'No guests found with this phone number');
           return reply.code(404).send({ error: 'No guests found with this phone number' });
         }
 
         return reply.send(family);
       } catch (error) {
-        console.error(error);
+        request.log.error({ error }, 'Error searching family');
         return reply.code(500).send({ error: 'Internal server error' });
       }
     }
@@ -278,11 +282,19 @@ export async function guestsRoutes(app: FastifyInstance) {
     async (request: FastifyRequest, reply: FastifyReply) => {
       try {
         const { id } = request.params as { id: number };
+        request.log.info({ guestId: id }, 'Attempting to delete guest');
+
         const deleted = await guestsService.deleteGuest(Number(id));
-        if (!deleted) return reply.code(404).send({ error: 'Guest not found' });
+
+        if (!deleted) {
+          request.log.warn({ guestId: id }, 'Guest not found');
+          return reply.code(404).send({ error: 'Guest not found' });
+        }
+
+        request.log.info({ guestId: id, deletedId: deleted.id }, 'Guest deleted successfully');
         return reply.send({ message: 'Guest deleted', id: deleted.id });
       } catch (error) {
-        request.log.error(error);
+        request.log.error({ error }, 'Error deleting guest');
         return reply.code(500).send({ error: 'Internal server error' });
       }
     }
@@ -309,7 +321,7 @@ export async function guestsRoutes(app: FastifyInstance) {
       try {
         const q = request.query as Record<string, unknown>;
         const page = Number(q.page as unknown as number) || 1;
-        const limit = Number(q.limit as unknown as number) || 100;
+        const limit = Number(q.limit as unknown as number) || 500;
         const result = await guestsService.listGuests(page, limit);
         return reply.send(result);
       } catch (error) {
@@ -347,6 +359,39 @@ export async function guestsRoutes(app: FastifyInstance) {
           .send(csv);
       } catch (error) {
         request.log.error(error);
+        return reply.code(500).send({ error: 'Internal server error' });
+      }
+    }
+  );
+
+  // Admin delete all guests
+  app.delete(
+    '/guests/all',
+    {
+      preHandler: [authMiddleware],
+      schema: {
+        tags: ['guests'],
+        description: 'Deletar TODOS os convidados (cuidado!)',
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        request.log.warn('Deleting ALL guests - this is a destructive operation');
+
+        const allGuests = await guestsService.listGuests(1, 100000);
+        const totalDeleted = allGuests.guests.length;
+
+        for (const guest of allGuests.guests) {
+          await guestsService.deleteGuest(guest.id);
+        }
+
+        request.log.info({ totalDeleted }, 'All guests deleted successfully');
+        return reply.send({
+          message: 'All guests deleted',
+          totalDeleted,
+        });
+      } catch (error) {
+        request.log.error({ error }, 'Error deleting all guests');
         return reply.code(500).send({ error: 'Internal server error' });
       }
     }

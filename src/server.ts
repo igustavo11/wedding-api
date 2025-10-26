@@ -15,8 +15,15 @@ app.register(cookie, {
 });
 
 app.register(cors, {
-  origin: env.BETTER_AUTH_URL || 'http://localhost:3338',
+  origin: [
+    'http://localhost:3338',
+    'http://localhost:8080',
+    env.BETTER_AUTH_URL,
+    'https://caioethais.vercel.app',
+  ].filter(Boolean),
   credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
 });
 
 app.register(multipart, {
