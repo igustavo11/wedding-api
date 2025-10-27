@@ -5,7 +5,8 @@
   "main": "server.ts",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "tsc",
+    "build": "tsc && node -e \"console.log('Build complete')\"",
+    "start": "node dist/server.js",
     "test": "echo \"Error: no test specified\" && exit 1",
     "migrate": "drizzle-kit migrate",
     "generate": "drizzle-kit generate",
@@ -46,6 +47,7 @@
     "fastify-cors": "^6.0.3",
     "pg": "^8.16.3",
     "uuid": "^13.0.0",
+    "vercel": "^48.6.0",
     "zod": "^4.1.12"
   }
 }
