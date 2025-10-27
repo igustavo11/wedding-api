@@ -41,8 +41,8 @@ export async function authRoutes(app: FastifyInstance) {
         if (result.token) {
           reply.setCookie("better-auth.session_token", result.token, {
             httpOnly: true,
-            secure: process.env.NODE_ENV === "production",
-            sameSite: "lax",
+            secure: true,
+            sameSite: "none",
             path: "/",
             maxAge: 60 * 60 * 24 * 7,
           });
@@ -96,8 +96,8 @@ export async function authRoutes(app: FastifyInstance) {
         if (result.token) {
           reply.setCookie("better-auth.session_token", result.token, {
             httpOnly: true,
-            secure: process.env.NODE_ENV === "production",
-            sameSite: "lax",
+            secure: true,
+            sameSite: "none",
             path: "/",
             maxAge: 60 * 60 * 24 * 7, // 7 days
           });
