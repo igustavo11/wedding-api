@@ -37,4 +37,7 @@ export const env = {
   CLOUDINARY_CLOUD_NAME: process.env.CLOUDINARY_CLOUD_NAME || '',
   CLOUDINARY_API_KEY: process.env.CLOUDINARY_API_KEY || '',
   CLOUDINARY_API_SECRET: process.env.CLOUDINARY_API_SECRET || '',
+  ABACATEPAY_API_KEY: process.env.ABACATEPAY_API_KEY || '',
+  ABACATEPAY_DEV_MODE: process.env.ABACATEPAY_DEV_MODE === 'true',
+  ABACATEPAY_BASE_URL: process.env.ABACATEPAY_BASE_URL || 'https://api.abacatepay.com/v1',
 };
