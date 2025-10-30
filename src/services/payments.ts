@@ -1,15 +1,23 @@
 import { eq } from 'drizzle-orm';
 import { db } from '../db';
 import { gifts, purchases } from '../db/schema';
-import { abacatePayClient } from '../lib/abacatepay';
+import { mercadoPagoClient } from '../lib/mercadopago';
 
-interface CreatePixPaymentParams {
+interface CreatePaymentParams {
   giftId: number;
   buyerName: string;
   buyerPhone: string;
   buyerEmail: string;
-  buyerTaxId: string; // CPF
+  buyerTaxId: string;
   guestId?: number;
+  binaryMode?: boolean;
+  address?: {
+    street?: string;
+    number?: string;
+    zipCode?: string;
+    city?: string;
+    state?: string;
+  };
 }
 
 class PaymentsService {
@@ -17,17 +25,13 @@ class PaymentsService {
     return taxId.replace(/\D/g, '');
   }
 
-  async createPixPayment(params: CreatePixPaymentParams) {
+  async createPayment(params: CreatePaymentParams) {
     const cleanedTaxId = this.cleanTaxId(params.buyerTaxId);
 
     const [gift] = await db.select().from(gifts).where(eq(gifts.id, params.giftId)).limit(1);
 
     if (!gift) {
       throw new Error('Presente não encontrado');
-    }
-
-    if (!gift.available) {
-      throw new Error('Presente não está disponível para compra');
     }
 
     const [existingPurchase] = await db
@@ -46,27 +50,24 @@ class PaymentsService {
       }
     }
 
-    const priceInCents = Math.round(Number.parseFloat(gift.price) * 100);
-
-    const pixResponse = await abacatePayClient.createPixQrCode({
-      amount: priceInCents,
-      expiresIn: 3600,
-      description: `Presente de casamento: ${gift.name}`,
-      customer: {
-        name: params.buyerName,
-        cellphone: params.buyerPhone,
-        email: params.buyerEmail,
-        taxId: cleanedTaxId,
-      },
-      metadata: {
-        giftId: params.giftId,
-        giftName: gift.name,
-      },
-    });
-
-    if (pixResponse.error || !pixResponse.data) {
-      throw new Error(`Erro ao criar pagamento PIX: ${pixResponse.error}`);
+    if (!gift.available) {
+      throw new Error('Presente não está disponível para compra');
     }
+
+    const priceInDecimal = Number.parseFloat(gift.price);
+
+    const paymentResponse = await mercadoPagoClient.createPayment({
+      giftId: params.giftId,
+      giftName: gift.name,
+      amount: priceInDecimal,
+      buyerName: params.buyerName,
+      buyerEmail: params.buyerEmail,
+      buyerPhone: params.buyerPhone,
+      buyerTaxId: cleanedTaxId,
+      guestId: params.guestId,
+      binaryMode: params.binaryMode,
+      address: params.address,
+    });
 
     const [purchase] = await db
       .insert(purchases)
@@ -79,29 +80,25 @@ class PaymentsService {
         buyerTaxId: cleanedTaxId,
         paymentMethod: 'pix',
         paymentStatus: 'pending',
-        paymentId: pixResponse.data.id,
-        pixChargeId: pixResponse.data.id,
-        pixQrCode: pixResponse.data.brCode,
-        pixQrCodeBase64: pixResponse.data.brCodeBase64,
-        expiresAt: new Date(pixResponse.data.expiresAt),
+        paymentId: paymentResponse.preferenceId,
+        pixChargeId: null,
+        pixQrCode: null,
+        pixQrCodeBase64: null,
+        expiresAt: null,
         metadata: JSON.stringify({
-          devMode: pixResponse.data.devMode,
-          platformFee: pixResponse.data.platformFee,
+          platform: 'mercadopago',
+          preferenceId: paymentResponse.preferenceId,
+          checkoutUrl: paymentResponse.checkoutUrl,
         }),
       })
       .returning();
 
-    await db.update(gifts).set({ available: false }).where(eq(gifts.id, params.giftId));
-
     return {
       purchase,
       gift,
-      pixData: {
-        qrCode: pixResponse.data.brCode,
-        qrCodeBase64: pixResponse.data.brCodeBase64,
-        amount: pixResponse.data.amount,
-        expiresAt: pixResponse.data.expiresAt,
-      },
+      checkoutUrl: paymentResponse.checkoutUrl,
+      preferenceId: paymentResponse.preferenceId,
+      availablePaymentMethods: ['pix', 'credit_card'],
     };
   }
 
@@ -128,40 +125,6 @@ class PaymentsService {
       };
     }
 
-    if (purchase.pixChargeId) {
-      try {
-        const statusResponse = await abacatePayClient.checkPixQrCode(purchase.pixChargeId);
-
-        if (statusResponse.data.status === 'PAID') {
-          await this.handlePaymentSuccess(purchaseId);
-          const [updatedPurchase] = await db
-            .select()
-            .from(purchases)
-            .where(eq(purchases.id, purchaseId))
-            .limit(1);
-          return {
-            purchase: updatedPurchase,
-            needsUpdate: true,
-          };
-        }
-
-        if (statusResponse.data.status === 'EXPIRED') {
-          await this.handlePaymentExpired(purchaseId);
-          const [updatedPurchase] = await db
-            .select()
-            .from(purchases)
-            .where(eq(purchases.id, purchaseId))
-            .limit(1);
-          return {
-            purchase: updatedPurchase,
-            needsUpdate: true,
-          };
-        }
-      } catch (error) {
-        console.error('Erro ao verificar status na AbacatePay:', error);
-      }
-    }
-
     return {
       purchase,
       needsUpdate: false,
@@ -179,6 +142,11 @@ class PaymentsService {
       throw new Error('Compra não encontrada');
     }
 
+    if (purchase.paymentStatus === 'paid') {
+      console.log(`⚠️  Pagamento #${purchaseId} já estava como pago. Pulando processamento.`);
+      return;
+    }
+
     await db
       .update(purchases)
       .set({
@@ -189,7 +157,9 @@ class PaymentsService {
 
     await db.update(gifts).set({ available: false }).where(eq(gifts.id, purchase.giftId));
 
-    console.log(`✅ Pagamento aprovado para compra #${purchaseId}`);
+    console.log(
+      `✅ Pagamento aprovado para compra #${purchaseId} - Presente marcado como indisponível`
+    );
   }
 
   async handlePaymentExpired(purchaseId: number) {
@@ -214,6 +184,30 @@ class PaymentsService {
     await db.update(gifts).set({ available: true }).where(eq(gifts.id, purchase.giftId));
 
     console.log(`⏰ Pagamento expirado para compra #${purchaseId}`);
+  }
+
+  async handlePaymentFailed(purchaseId: number) {
+    const [purchase] = await db
+      .select()
+      .from(purchases)
+      .where(eq(purchases.id, purchaseId))
+      .limit(1);
+
+    if (!purchase) {
+      throw new Error('Compra não encontrada');
+    }
+
+    await db
+      .update(purchases)
+      .set({
+        paymentStatus: 'failed',
+        updatedAt: new Date(),
+      })
+      .where(eq(purchases.id, purchaseId));
+
+    await db.update(gifts).set({ available: true }).where(eq(gifts.id, purchase.giftId));
+
+    console.log(`❌ Pagamento falhou para compra #${purchaseId}`);
   }
 
   async cancelPayment(purchaseId: number) {
@@ -244,36 +238,6 @@ class PaymentsService {
     console.log(`❌ Pagamento cancelado para compra #${purchaseId}`);
   }
 
-  async simulatePayment(purchaseId: number) {
-    if (!abacatePayClient.isDevMode()) {
-      throw new Error('Simulação de pagamento só é permitida em Dev Mode');
-    }
-
-    const [purchase] = await db
-      .select()
-      .from(purchases)
-      .where(eq(purchases.id, purchaseId))
-      .limit(1);
-
-    if (!purchase) {
-      throw new Error('Compra não encontrada');
-    }
-
-    if (purchase.paymentStatus !== 'pending') {
-      throw new Error('Apenas pagamentos pendentes podem ser simulados');
-    }
-
-    if (!purchase.pixChargeId) {
-      throw new Error('Compra não possui ID do PIX');
-    }
-
-    await abacatePayClient.simulatePixPayment(purchase.pixChargeId);
-
-    await this.handlePaymentSuccess(purchaseId);
-
-    return { message: 'Pagamento simulado com sucesso' };
-  }
-
   async listPurchases(filters?: { status?: string; giftId?: number }) {
     let query = db.select().from(purchases);
 
@@ -302,6 +266,188 @@ class PaymentsService {
       ...purchase,
       gift,
     };
+  }
+
+  async processMercadoPagoWebhook(data: {
+    type: string;
+    data: {
+      id: string;
+    };
+  }) {
+    const { type, data: notificationData } = data;
+
+    if (type === 'payment') {
+      const paymentId = notificationData.id;
+
+      try {
+        let payment;
+        try {
+          payment = await mercadoPagoClient.getPayment(paymentId);
+        } catch (error: any) {
+          if (error?.status === 404 || error?.error === 'not_found') {
+            console.warn(
+              `Pagamento ${paymentId} não encontrado. Pode ser uma notificação de preferência ou pagamento ainda não criado.`
+            );
+
+            try {
+              const preference = await mercadoPagoClient.getPreference(paymentId);
+              const preferenceId = preference.id || paymentId;
+
+              const purchases = await this.listPurchases();
+              const purchase = purchases.find((p) => p.paymentId === preferenceId);
+
+              if (purchase) {
+                console.log(
+                  `Notificação recebida para preferência ${preferenceId}. Verificando pagamentos associados...`
+                );
+                return { purchaseId: purchase.id, status: 'notification_received' };
+              }
+
+              return null;
+            } catch (prefError) {
+              console.warn('Erro ao buscar preferência:', prefError);
+              return null;
+            }
+          }
+          throw error;
+        }
+
+        const preferenceId = (payment as any).preference_id;
+
+        if (!preferenceId) {
+          console.warn('Preference ID não encontrado no pagamento:', paymentId);
+          const metadata = (payment as any).metadata || {};
+          const giftId = metadata.giftId;
+
+          if (giftId) {
+            const purchases = await this.listPurchases({ giftId: Number(giftId) });
+            const purchase = purchases.find(
+              (p) => p.paymentStatus === 'pending' && p.paymentMethod === 'card'
+            );
+
+            if (purchase) {
+              if (purchase.paymentStatus === 'paid') {
+                console.log(`⚠️  Compra #${purchase.id} já está como paga. Pulando processamento.`);
+                return { purchaseId: purchase.id, status: 'already_processed' };
+              }
+
+              const paymentStatus = (payment as any).status;
+              const _paymentMethodId = (payment as any).payment_method_id;
+
+              if (paymentStatus === 'approved') {
+                await this.handlePaymentSuccess(purchase.id);
+                return { purchaseId: purchase.id, status: 'approved' };
+              }
+
+              if (paymentStatus === 'rejected' || paymentStatus === 'cancelled') {
+                if (purchase.paymentStatus !== 'failed') {
+                  await this.handlePaymentFailed(purchase.id);
+                }
+                return { purchaseId: purchase.id, status: 'failed' };
+              }
+
+              if (paymentStatus === 'expired' || paymentStatus === 'refunded') {
+                if (purchase.paymentMethod === 'pix') {
+                  await this.handlePaymentExpired(purchase.id);
+                  return { purchaseId: purchase.id, status: 'expired' };
+                }
+              }
+
+              return { purchaseId: purchase.id, status: paymentStatus };
+            }
+          }
+
+          return null;
+        }
+
+        const purchases = await this.listPurchases();
+        const purchase = purchases.find((p) => p.paymentId === preferenceId);
+
+        if (!purchase) {
+          console.warn('Compra não encontrada para preference_id:', preferenceId);
+          return null;
+        }
+
+        if (purchase.paymentStatus === 'paid') {
+          console.log(
+            `⚠️  Compra #${purchase.id} já está como paga. Pulando processamento do webhook.`
+          );
+          return { purchaseId: purchase.id, status: 'already_processed' };
+        }
+
+        const paymentStatus = (payment as any).status;
+        const paymentMethodId = (payment as any).payment_method_id;
+
+        if (paymentMethodId) {
+          const detectedMethod: 'pix' | 'card' = paymentMethodId === 'pix' ? 'pix' : 'card';
+          if (purchase.paymentMethod !== detectedMethod) {
+            const [updatedPurchase] = await db
+              .update(purchases)
+              .set({ paymentMethod: detectedMethod })
+              .where(eq(purchases.id, purchase.id))
+              .returning();
+
+            if (updatedPurchase) {
+              console.log(
+                `🔍 Método de pagamento detectado: ${detectedMethod} para compra #${purchase.id}`
+              );
+            }
+          }
+        }
+
+        if (paymentMethodId === 'pix') {
+          if (paymentStatus === 'approved') {
+            await this.handlePaymentSuccess(purchase.id);
+            return { purchaseId: purchase.id, status: 'approved' };
+          }
+
+          if (paymentStatus === 'rejected' || paymentStatus === 'cancelled') {
+            if (purchase.paymentStatus !== 'failed') {
+              await this.handlePaymentFailed(purchase.id);
+            }
+            return { purchaseId: purchase.id, status: 'failed' };
+          }
+
+          if (paymentStatus === 'expired' || paymentStatus === 'refunded') {
+            await this.handlePaymentExpired(purchase.id);
+            return { purchaseId: purchase.id, status: 'expired' };
+          }
+
+          if (paymentStatus === 'pending' || paymentStatus === 'in_process') {
+            return { purchaseId: purchase.id, status: 'pending' };
+          }
+        }
+
+        if (paymentStatus === 'approved') {
+          await this.handlePaymentSuccess(purchase.id);
+          return { purchaseId: purchase.id, status: 'approved' };
+        }
+
+        if (paymentStatus === 'rejected' || paymentStatus === 'cancelled') {
+          if (purchase.paymentStatus !== 'failed') {
+            await this.handlePaymentFailed(purchase.id);
+          }
+          return { purchaseId: purchase.id, status: 'failed' };
+        }
+
+        if (paymentStatus === 'pending' || paymentStatus === 'in_process') {
+          return { purchaseId: purchase.id, status: 'pending' };
+        }
+
+        return { purchaseId: purchase.id, status: paymentStatus };
+      } catch (error) {
+        console.error('Erro ao processar webhook do Mercado Pago:', error);
+        return null;
+      }
+    }
+
+    if (type === 'merchant_order') {
+      const orderId = notificationData.id;
+      console.log('Notificação de merchant_order recebida:', orderId);
+      return null;
+    }
+
+    return null;
   }
 }
 

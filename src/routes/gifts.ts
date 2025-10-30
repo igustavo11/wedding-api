@@ -168,7 +168,9 @@ export async function giftsRoutes(app: FastifyInstance) {
         return reply.send(updated);
       } catch (error) {
         request.log.error(error);
-        return reply.code(400).send({ error: 'Invalid data or upload failed' });
+        const message = error instanceof Error ? error.message : 'Invalid data or upload failed';
+        const statusCode = message.includes('Nenhum campo') ? 400 : 400;
+        return reply.code(statusCode).send({ error: message });
       }
     }
   );
@@ -187,7 +189,10 @@ export async function giftsRoutes(app: FastifyInstance) {
         return reply.send({ message: 'Deleted', id: deleted.id });
       } catch (error) {
         request.log.error(error);
-        return reply.code(500).send({ error: 'Internal server error' });
+        const message = error instanceof Error ? error.message : 'Internal server error';
+        // Se for erro de foreign key constraint, retornar 400 com mensagem explicativa
+        const statusCode = message.includes('compras associadas') ? 400 : 500;
+        return reply.code(statusCode).send({ error: message });
       }
     }
   );

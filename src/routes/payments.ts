@@ -1,11 +1,10 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { env } from '../config/env';
 import { authMiddleware } from '../middlewares/auth';
 import { paymentsService } from '../services/payments';
 
 export async function paymentsRoutes(app: FastifyInstance) {
-  app.post('/payments/pix/create', async (request: FastifyRequest, reply: FastifyReply) => {
+  const createPaymentHandler = async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const schema = z.object({
         giftId: z.number().int().positive(),
@@ -19,11 +18,21 @@ export async function paymentsRoutes(app: FastifyInstance) {
             message: 'CPF deve ter 11 dígitos ou CNPJ 14 dígitos',
           }),
         guestId: z.number().int().positive().optional(),
+        binaryMode: z.boolean().optional(),
+        address: z
+          .object({
+            street: z.string().optional(),
+            number: z.string().optional(),
+            zipCode: z.string().optional(),
+            city: z.string().optional(),
+            state: z.string().optional(),
+          })
+          .optional(),
       });
 
       const data = schema.parse(request.body);
 
-      const result = await paymentsService.createPixPayment(data);
+      const result = await paymentsService.createPayment(data);
 
       return reply.code(201).send({
         success: true,
@@ -32,9 +41,9 @@ export async function paymentsRoutes(app: FastifyInstance) {
           giftId: result.gift.id,
           giftName: result.gift.name,
           amount: Number.parseFloat(result.gift.price),
-          pixQrCode: result.pixData.qrCode,
-          pixQrCodeBase64: result.pixData.qrCodeBase64,
-          expiresAt: result.pixData.expiresAt,
+          checkoutUrl: result.checkoutUrl,
+          preferenceId: result.preferenceId,
+          availablePaymentMethods: result.availablePaymentMethods,
         },
       });
     } catch (error) {
@@ -45,7 +54,10 @@ export async function paymentsRoutes(app: FastifyInstance) {
         error: message,
       });
     }
-  });
+  };
+
+  app.post('/payments/create', createPaymentHandler);
+  app.post('/payments/pix/create', createPaymentHandler);
 
   app.get('/payments/:purchaseId/status', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
@@ -89,7 +101,6 @@ export async function paymentsRoutes(app: FastifyInstance) {
   app.post('/payments/:purchaseId/cancel', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const { purchaseId } = request.params as { purchaseId: string };
-
       await paymentsService.cancelPayment(Number(purchaseId));
 
       return reply.send({
@@ -106,65 +117,6 @@ export async function paymentsRoutes(app: FastifyInstance) {
       });
     }
   });
-
-  app.post(
-    '/payments/:purchaseId/simulate-payment',
-    {
-      preHandler: [authMiddleware],
-    },
-    async (request: FastifyRequest, reply: FastifyReply) => {
-      try {
-        const { purchaseId } = request.params as { purchaseId: string };
-
-        const result = await paymentsService.simulatePayment(Number(purchaseId));
-
-        return reply.send({
-          success: true,
-          message: result.message,
-          purchaseId: Number(purchaseId),
-        });
-      } catch (error) {
-        request.log.error(error);
-        const message = error instanceof Error ? error.message : 'Erro ao simular pagamento';
-        return reply.code(400).send({
-          success: false,
-          error: message,
-        });
-      }
-    }
-  );
-
-  app.post(
-    '/payments/:purchaseId/simulate-payment-dev',
-    async (request: FastifyRequest, reply: FastifyReply) => {
-      try {
-        // Verificar se está em Dev Mode
-        if (!env.ABACATEPAY_DEV_MODE) {
-          return reply.code(403).send({
-            success: false,
-            error: 'Este endpoint só está disponível em Dev Mode',
-          });
-        }
-
-        const { purchaseId } = request.params as { purchaseId: string };
-
-        const result = await paymentsService.simulatePayment(Number(purchaseId));
-
-        return reply.send({
-          success: true,
-          message: result.message,
-          purchaseId: Number(purchaseId),
-        });
-      } catch (error) {
-        request.log.error(error);
-        const message = error instanceof Error ? error.message : 'Erro ao simular pagamento';
-        return reply.code(400).send({
-          success: false,
-          error: message,
-        });
-      }
-    }
-  );
 
   app.get(
     '/payments/purchases',
@@ -221,32 +173,83 @@ export async function paymentsRoutes(app: FastifyInstance) {
     }
   );
 
-  app.post('/payments/webhook/abacatepay', async (request: FastifyRequest, reply: FastifyReply) => {
-    try {
-      const body = request.body as {
-        event: string;
-        data: {
-          id: string;
-          status: string;
-        };
-      };
+  app.post(
+    '/payments/webhook/mercadopago',
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const query = request.query as { topic?: string; id?: string };
+        const body = request.body as { type?: string; data?: { id: string } } | null;
 
-      request.log.info({ webhook: body }, 'Webhook recebido da AbacatePay');
+        request.log.info({ query, body }, 'Webhook recebido do Mercado Pago');
 
-      const purchases = await paymentsService.listPurchases();
-      const purchase = purchases.find((p) => p.pixChargeId === body.data.id);
+        if (query.topic && query.id) {
+          if (query.topic === 'payment' || query.topic === 'merchant_order') {
+            const result = await paymentsService.processMercadoPagoWebhook({
+              type: query.topic,
+              data: { id: query.id },
+            });
 
-      if (!purchase) {
-        request.log.warn({ pixChargeId: body.data.id }, 'Compra não encontrada para webhook');
-        return reply.code(404).send({ error: 'Compra não encontrada' });
+            if (result) {
+              request.log.info(
+                { purchaseId: result.purchaseId, status: result.status },
+                'Notificação processada via webhook'
+              );
+            } else {
+              request.log.info(
+                { topic: query.topic, id: query.id },
+                'Notificação recebida mas não processada'
+              );
+            }
+          }
+        }
+
+        if (body?.type && body.data?.id) {
+          const result = await paymentsService.processMercadoPagoWebhook({
+            type: body.type,
+            data: body.data,
+          });
+
+          if (result) {
+            request.log.info(
+              { purchaseId: result.purchaseId, status: result.status },
+              'Pagamento processado via webhook'
+            );
+          }
+        }
+
+        return reply.send({ success: true });
+      } catch (error) {
+        request.log.error(error);
+        return reply.code(500).send({ error: 'Erro ao processar webhook' });
       }
+    }
+  );
 
-      if (body.event === 'pix.paid' && body.data.status === 'PAID') {
-        await paymentsService.handlePaymentSuccess(purchase.id);
-        request.log.info({ purchaseId: purchase.id }, 'Pagamento processado via webhook');
-      } else if (body.event === 'pix.expired' && body.data.status === 'EXPIRED') {
-        await paymentsService.handlePaymentExpired(purchase.id);
-        request.log.info({ purchaseId: purchase.id }, 'Expiração processada via webhook');
+  app.get('/payments/webhook/mercadopago', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const query = request.query as { topic?: string; id?: string };
+
+      request.log.info({ query }, 'Webhook GET recebido do Mercado Pago');
+
+      if (query.topic === 'payment' || query.topic === 'merchant_order') {
+        if (query.id) {
+          const result = await paymentsService.processMercadoPagoWebhook({
+            type: query.topic,
+            data: { id: query.id },
+          });
+
+          if (result) {
+            request.log.info(
+              { purchaseId: result.purchaseId, status: result.status },
+              'Notificação processada via webhook GET'
+            );
+          } else {
+            request.log.info(
+              { topic: query.topic, id: query.id },
+              'Notificação recebida mas não processada'
+            );
+          }
+        }
       }
 
       return reply.send({ success: true });
