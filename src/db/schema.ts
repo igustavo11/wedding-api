@@ -11,7 +11,14 @@ import {
 } from 'drizzle-orm/pg-core';
 
 export const ageGroupEnum = pgEnum('age_group', ['adult', 'child']);
-export const paymentStatusEnum = pgEnum('payment_status', ['pending', 'paid', 'failed']);
+export const paymentStatusEnum = pgEnum('payment_status', [
+  'pending',
+  'paid',
+  'failed',
+  'expired',
+  'cancelled',
+]);
+export const paymentMethodEnum = pgEnum('payment_method', ['pix', 'card']);
 
 // Guests table
 export const guests = pgTable('guests', {
@@ -37,17 +44,29 @@ export const gifts = pgTable('gifts', {
 // Purchases table
 export const purchases = pgTable('purchases', {
   id: serial('id').primaryKey(),
-  guestId: integer('guest_id')
-    .notNull()
-    .references(() => guests.id),
+  guestId: integer('guest_id').references(() => guests.id),
   giftId: integer('gift_id')
     .notNull()
     .references(() => gifts.id),
   buyerName: varchar('buyer_name', { length: 100 }).notNull(),
   buyerPhone: varchar('buyer_phone', { length: 20 }).notNull(),
+  buyerEmail: varchar('buyer_email', { length: 100 }),
+  buyerTaxId: varchar('buyer_tax_id', { length: 14 }),
+
+  paymentMethod: paymentMethodEnum('payment_method').notNull(),
   paymentStatus: paymentStatusEnum('payment_status').default('pending').notNull(),
   paymentId: varchar('payment_id', { length: 255 }),
+
+  // abacastepay
+  pixChargeId: varchar('pix_charge_id', { length: 255 }),
+  pixQrCode: text('pix_qr_code'),
+  pixQrCodeBase64: text('pix_qr_code_base64'),
+  expiresAt: timestamp('expires_at', { withTimezone: true }),
+
+  metadata: text('metadata'),
+
   purchasedAt: timestamp('purchased_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
 
 // Memories table

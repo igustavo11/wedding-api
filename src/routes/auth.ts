@@ -1,23 +1,23 @@
-import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { auth } from "../lib/auth";
-import { authMiddleware } from "../middlewares/auth";
-import { rateLimitAuth } from "../middlewares/rate-limit";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { auth } from '../lib/auth';
+import { authMiddleware } from '../middlewares/auth';
+import { rateLimitAuth } from '../middlewares/rate-limit';
 
 export async function authRoutes(app: FastifyInstance) {
   app.post(
-    "/auth/signup",
+    '/auth/signup',
     {
       schema: {
         preHandler: [rateLimitAuth],
-        tags: ["auth"],
-        description: "Registrar novo administrador",
+        tags: ['auth'],
+        description: 'Registrar novo administrador',
         body: {
-          type: "object",
-          required: ["email", "password", "name"],
+          type: 'object',
+          required: ['email', 'password', 'name'],
           properties: {
-            email: { type: "string", format: "email" },
-            password: { type: "string", minLength: 6 },
-            name: { type: "string" },
+            email: { type: 'string', format: 'email' },
+            password: { type: 'string', minLength: 6 },
+            name: { type: 'string' },
           },
         },
       },
@@ -39,11 +39,11 @@ export async function authRoutes(app: FastifyInstance) {
         });
 
         if (result.token) {
-          reply.setCookie("better-auth.session_token", result.token, {
+          reply.setCookie('better-auth.session_token', result.token, {
             httpOnly: true,
             secure: true,
-            sameSite: "none",
-            path: "/",
+            sameSite: 'none',
+            path: '/',
             maxAge: 60 * 60 * 24 * 7,
           });
         }
@@ -52,28 +52,26 @@ export async function authRoutes(app: FastifyInstance) {
           user: result.user,
         });
       } catch (error) {
-        console.error("Signup error:", error);
-        return reply
-          .code(400)
-          .send({ error: "Failed to create admin account" });
+        console.error('Signup error:', error);
+        return reply.code(400).send({ error: 'Failed to create admin account' });
       }
-    },
+    }
   );
 
   // Login
   app.post(
-    "/auth/signin",
+    '/auth/signin',
     {
       preHandler: [rateLimitAuth],
       schema: {
-        tags: ["auth"],
-        description: "Login de administrador",
+        tags: ['auth'],
+        description: 'Login de administrador',
         body: {
-          type: "object",
-          required: ["email", "password"],
+          type: 'object',
+          required: ['email', 'password'],
           properties: {
-            email: { type: "string", format: "email" },
-            password: { type: "string" },
+            email: { type: 'string', format: 'email' },
+            password: { type: 'string' },
           },
         },
       },
@@ -94,11 +92,11 @@ export async function authRoutes(app: FastifyInstance) {
 
         // Set the session token as httpOnly cookie
         if (result.token) {
-          reply.setCookie("better-auth.session_token", result.token, {
+          reply.setCookie('better-auth.session_token', result.token, {
             httpOnly: true,
             secure: true,
-            sameSite: "none",
-            path: "/",
+            sameSite: 'none',
+            path: '/',
             maxAge: 60 * 60 * 24 * 7, // 7 days
           });
         }
@@ -108,44 +106,44 @@ export async function authRoutes(app: FastifyInstance) {
           user: result.user,
         });
       } catch (error) {
-        console.error("Signin error:", error);
-        return reply.code(401).send({ error: "Invalid credentials" });
+        console.error('Signin error:', error);
+        return reply.code(401).send({ error: 'Invalid credentials' });
       }
-    },
+    }
   );
 
   // Logout
   app.post(
-    "/auth/signout",
+    '/auth/signout',
     {
       preHandler: [authMiddleware],
       schema: {
-        tags: ["auth"],
-        description: "Logout do administrador",
+        tags: ['auth'],
+        description: 'Logout do administrador',
       },
     },
-    async (request: FastifyRequest, reply: FastifyReply) => {
+    async (_request: FastifyRequest, reply: FastifyReply) => {
       try {
         // Clear the cookie
-        reply.clearCookie("better-auth.session_token", {
-          path: "/",
+        reply.clearCookie('better-auth.session_token', {
+          path: '/',
         });
 
-        return reply.send({ message: "Logged out successfully" });
+        return reply.send({ message: 'Logged out successfully' });
       } catch (error) {
-        console.error("Signout error:", error);
-        return reply.code(500).send({ error: "Failed to logout" });
+        console.error('Signout error:', error);
+        return reply.code(500).send({ error: 'Failed to logout' });
       }
-    },
+    }
   );
 
   app.get(
-    "/auth/me",
+    '/auth/me',
     {
       preHandler: [authMiddleware],
       schema: {
-        tags: ["auth"],
-        description: "Obter dados do administrador logado",
+        tags: ['auth'],
+        description: 'Obter dados do administrador logado',
       },
     },
     async (request: FastifyRequest, reply: FastifyReply) => {
@@ -153,6 +151,6 @@ export async function authRoutes(app: FastifyInstance) {
         user: request.user,
         session: request.session,
       });
-    },
+    }
   );
 }

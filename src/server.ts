@@ -18,8 +18,10 @@ app.register(cors, {
   origin: [
     'http://localhost:3338',
     'http://localhost:8080',
+    'http://localhost:8081',
     env.BETTER_AUTH_URL,
     'https://caioethais.vercel.app',
+    'https://caioethais.com.br',
   ].filter(Boolean),
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
