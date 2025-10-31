@@ -138,6 +138,63 @@ export async function guestsRoutes(app: FastifyInstance) {
       }
     }
   );
+
+  // Update attendance status (new method - accepts pending, confirmed, declined)
+  app.post(
+    '/guests/attendance',
+    {
+      schema: {
+        tags: ['guests'],
+        description: 'Atualizar status de presença (pending, confirmed, declined)',
+        body: {
+          type: 'object',
+          required: ['phone', 'attendanceUpdates'],
+          properties: {
+            phone: { type: 'string', description: 'Telefone da família' },
+            attendanceUpdates: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  id: { type: 'number' },
+                  attendanceStatus: {
+                    type: 'string',
+                    enum: ['pending', 'confirmed', 'declined'],
+                  },
+                },
+              },
+              description: 'Lista: [{id: 1, attendanceStatus: "confirmed"}, ...]',
+            },
+          },
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const schema = z.object({
+          phone: z.string().min(10),
+          attendanceUpdates: z.array(
+            z.object({
+              id: z.number(),
+              attendanceStatus: z.enum(['pending', 'confirmed', 'declined']),
+            })
+          ),
+        });
+
+        const { phone, attendanceUpdates } = schema.parse(request.body);
+        const result = await guestsService.updateAttendanceStatus(phone, attendanceUpdates);
+
+        if (!result) {
+          return reply.code(404).send({ error: 'No guests found with this phone number' });
+        }
+
+        return reply.send(result);
+      } catch (error) {
+        console.error(error);
+        return reply.code(400).send({ error: 'Invalid request data' });
+      }
+    }
+  );
   // Get guests by status (confirmed or unconfirmed)
   app.get(
     '/guests/:status',
@@ -172,6 +229,49 @@ export async function guestsRoutes(app: FastifyInstance) {
 
         const confirmed = status === 'confirmed';
         const result = await guestsService.getGuestsByStatus(confirmed);
+        return reply.send(result);
+      } catch (error) {
+        console.error(error);
+        return reply.code(500).send({ error: 'Internal server error' });
+      }
+    }
+  );
+
+  // Get guests by attendance status (pending, confirmed, declined)
+  app.get(
+    '/guests/attendance/:status',
+    {
+      preHandler: [authMiddleware],
+      schema: {
+        tags: ['guests'],
+        description: 'Obter convidados por status de presença (pending/confirmed/declined)',
+        params: {
+          type: 'object',
+          required: ['status'],
+          properties: {
+            status: {
+              type: 'string',
+              enum: ['pending', 'confirmed', 'declined'],
+              description: 'Status de presença dos convidados',
+            },
+          },
+        },
+      },
+    },
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        const { status } = request.params as { status: string };
+
+        if (!['pending', 'confirmed', 'declined'].includes(status)) {
+          return reply.code(400).send({
+            error: 'Invalid status',
+            message: 'Status deve ser "pending", "confirmed" ou "declined"',
+          });
+        }
+
+        const result = await guestsService.getGuestsByAttendanceStatus(
+          status as 'pending' | 'confirmed' | 'declined'
+        );
         return reply.send(result);
       } catch (error) {
         console.error(error);
@@ -255,6 +355,7 @@ export async function guestsRoutes(app: FastifyInstance) {
           phone: z.string().min(1).optional(),
           ageGroup: z.enum(['adult', 'child']).optional(),
           confirmed: z.boolean().optional(),
+          attendanceStatus: z.enum(['pending', 'confirmed', 'declined']).optional(),
         });
 
         const { id } = request.params as { id: number };

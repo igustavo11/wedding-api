@@ -11,6 +11,11 @@ import {
 } from 'drizzle-orm/pg-core';
 
 export const ageGroupEnum = pgEnum('age_group', ['adult', 'child']);
+export const attendanceStatusEnum = pgEnum('attendance_status', [
+  'pending',
+  'confirmed',
+  'declined',
+]);
 export const paymentStatusEnum = pgEnum('payment_status', [
   'pending',
   'paid',
@@ -28,6 +33,7 @@ export const guests = pgTable('guests', {
   ageGroup: ageGroupEnum('age_group').notNull(),
   confirmed: boolean('confirmed').default(false).notNull(),
   confirmationDate: timestamp('confirmation_date', { withTimezone: true }),
+  attendanceStatus: attendanceStatusEnum('attendance_status').default('pending').notNull(),
 });
 
 // Gifts table
