@@ -22,6 +22,7 @@ app.register(cors, {
     env.BETTER_AUTH_URL,
     'https://caioethais.vercel.app',
     'https://caioethais.com.br',
+    'https://www.caioethais.com.br',
   ].filter(Boolean),
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
