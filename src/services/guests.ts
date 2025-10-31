@@ -77,6 +77,7 @@ class GuestsService {
         .set({
           confirmed: confirmation.confirmed,
           confirmationDate: confirmation.confirmed ? new Date() : null,
+          attendanceStatus: confirmation.confirmed ? 'confirmed' : 'pending',
         })
         .where(eq(guests.id, confirmation.id))
         .returning();
@@ -182,6 +183,7 @@ class GuestsService {
       phone: string;
       ageGroup: 'adult' | 'child';
       confirmed: boolean;
+      attendanceStatus: 'pending' | 'confirmed' | 'declined';
     }>
   ) {
     const [updated] = await db
@@ -196,6 +198,9 @@ class GuestsService {
               confirmationDate: payload.confirmed ? new Date() : null,
             }
           : {}),
+        ...(payload.attendanceStatus !== undefined
+          ? { attendanceStatus: payload.attendanceStatus }
+          : {}),
       })
       .where(eq(guests.id, id))
       .returning();
@@ -206,6 +211,67 @@ class GuestsService {
   async deleteGuest(id: number) {
     const [deleted] = await db.delete(guests).where(eq(guests.id, id)).returning();
     return deleted || null;
+  }
+
+  async updateAttendanceStatus(
+    phone: string,
+    attendanceUpdates: { id: number; attendanceStatus: 'pending' | 'confirmed' | 'declined' }[]
+  ) {
+    const family = await db.select().from(guests).where(eq(guests.phone, phone));
+
+    if (family.length === 0) {
+      return null;
+    }
+
+    const updated = [];
+    for (const update of attendanceUpdates) {
+      const [result] = await db
+        .update(guests)
+        .set({
+          attendanceStatus: update.attendanceStatus,
+          confirmed: update.attendanceStatus === 'confirmed',
+          confirmationDate: update.attendanceStatus === 'confirmed' ? new Date() : null,
+        })
+        .where(eq(guests.id, update.id))
+        .returning();
+
+      updated.push(result);
+    }
+
+    return {
+      message: 'Guest attendance status updated successfully',
+      phone,
+      count: updated.length,
+      guests: updated,
+    };
+  }
+
+  async getGuestsByAttendanceStatus(status: 'pending' | 'confirmed' | 'declined') {
+    const guestList = await db.select().from(guests).where(eq(guests.attendanceStatus, status));
+
+    const adults = guestList.filter((guest) => guest.ageGroup === 'adult');
+    const children = guestList.filter((guest) => guest.ageGroup === 'child');
+
+    const statusLabels: Record<string, string> = {
+      pending: 'Pending',
+      confirmed: 'Confirmed',
+      declined: 'Declined',
+    };
+
+    return {
+      message: `${statusLabels[status]} guests retrieved successfully`,
+      status,
+      total: guestList.length,
+      adults: {
+        count: adults.length,
+        guests: adults,
+      },
+      children: {
+        count: children.length,
+        guests: children,
+      },
+      guests: guestList,
+    };
   }
 }
 

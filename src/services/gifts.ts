@@ -10,7 +10,7 @@ class GiftsService {
       .select()
       .from(gifts)
       .then((r) => r.length);
-    
+
     // Buscar compras pagas para cada presente
     const giftsWithPurchases = await Promise.all(
       rows.map(async (gift) => {
@@ -23,25 +23,30 @@ class GiftsService {
           })
           .from(purchases)
           .where(and(eq(purchases.giftId, gift.id), eq(purchases.paymentStatus, 'paid')));
-        
+
         return {
           ...gift,
           purchases: paidPurchases,
         };
       })
     );
-    
+
     return { total, page, limit, gifts: giftsWithPurchases };
   }
 
   async getById(id: number) {
     const row = await db.select().from(gifts).where(eq(gifts.id, id)).limit(1);
+
     if (!row || row.length === 0) {
       return null;
     }
-    
-    const gift = row[0];
-    
+
+    const gift = row.at(0);
+
+    if (!gift) {
+      return null;
+    }
+
     // Buscar compras pagas para este presente
     const paidPurchases = await db
       .select({
@@ -52,7 +57,7 @@ class GiftsService {
       })
       .from(purchases)
       .where(and(eq(purchases.giftId, gift.id), eq(purchases.paymentStatus, 'paid')));
-    
+
     return {
       ...gift,
       purchases: paidPurchases,
@@ -102,20 +107,20 @@ class GiftsService {
     if (data.name !== undefined) {
       updateData.name = data.name;
     }
-    
+
     // Permitir definir como null para limpar campos
     if (data.description !== undefined) {
       updateData.description = data.description === '' ? null : data.description;
     }
-    
+
     if (data.imageUrl !== undefined) {
       updateData.imageUrl = data.imageUrl === '' ? null : data.imageUrl;
     }
-    
+
     if (data.price !== undefined) {
       updateData.price = String(data.price);
     }
-    
+
     if (data.available !== undefined) {
       updateData.available = data.available;
     }
@@ -125,11 +130,7 @@ class GiftsService {
       throw new Error('Nenhum campo para atualizar');
     }
 
-    const [updated] = await db
-      .update(gifts)
-      .set(updateData)
-      .where(eq(gifts.id, id))
-      .returning();
+    const [updated] = await db.update(gifts).set(updateData).where(eq(gifts.id, id)).returning();
 
     return updated || null;
   }
@@ -145,7 +146,7 @@ class GiftsService {
     if (associatedPurchases.length > 0) {
       throw new Error(
         'Não é possível excluir este presente pois existem compras associadas. ' +
-        'Recomendação: marque o presente como indisponível (available: false) em vez de excluí-lo.'
+          'Recomendação: marque o presente como indisponível (available: false) em vez de excluí-lo.'
       );
     }
 
