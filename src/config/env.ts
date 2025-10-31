@@ -37,9 +37,6 @@ export const env = {
   CLOUDINARY_CLOUD_NAME: process.env.CLOUDINARY_CLOUD_NAME || '',
   CLOUDINARY_API_KEY: process.env.CLOUDINARY_API_KEY || '',
   CLOUDINARY_API_SECRET: process.env.CLOUDINARY_API_SECRET || '',
-  ABACATEPAY_API_KEY: process.env.ABACATEPAY_API_KEY || '',
-  ABACATEPAY_DEV_MODE: process.env.ABACATEPAY_DEV_MODE === 'true',
-  ABACATEPAY_BASE_URL: process.env.ABACATEPAY_BASE_URL || 'https://api.abacatepay.com/v1',
   MERCADOPAGO_ACCESS_TOKEN: process.env.MERCADOPAGO_ACCESS_TOKEN || '',
   MERCADOPAGO_PUBLIC_KEY: process.env.MERCADOPAGO_PUBLIC_KEY || '',
   MERCADOPAGO_SUCCESS_URL:
@@ -48,4 +45,6 @@ export const env = {
     process.env.MERCADOPAGO_FAILURE_URL || 'http://localhost:8080/payment/failure',
   MERCADOPAGO_PENDING_URL:
     process.env.MERCADOPAGO_PENDING_URL || 'http://localhost:8080/payment/pending',
+  MERCADOPAGO_URL_WEBHOOK: process.env.MERCADOPAGO_URL_WEBHOOK || '',
+  FRONTEND_URL: process.env.FRONTEND_URL || 'http://localhost:8080',
 };

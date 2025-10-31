@@ -32,10 +32,6 @@ class MercadoPagoClient {
   constructor() {
     const accessToken = env.MERCADOPAGO_ACCESS_TOKEN;
 
-    if (!accessToken) {
-      console.warn('⚠️  MERCADOPAGO_ACCESS_TOKEN não configurada. Configure no arquivo .env');
-    }
-
     this.client = new MercadoPagoConfig({
       accessToken,
       options: {
@@ -65,12 +61,15 @@ class MercadoPagoClient {
 
   async createPayment(params: CreatePaymentParams): Promise<PaymentResponse> {
     try {
-      const baseUrl = env.BETTER_AUTH_URL || 'http://localhost:3338';
+      const baseUrl = env.MERCADOPAGO_URL_WEBHOOK;
       const purchaseId = `${params.giftId}-${Date.now()}`;
 
-      const successUrl = env.MERCADOPAGO_SUCCESS_URL?.trim() || `${baseUrl}/payment/success`;
-      const failureUrl = env.MERCADOPAGO_FAILURE_URL?.trim() || `${baseUrl}/payment/failure`;
-      const pendingUrl = env.MERCADOPAGO_PENDING_URL?.trim() || `${baseUrl}/payment/pending`;
+      const successUrl =
+        env.MERCADOPAGO_SUCCESS_URL?.trim() || `http://localhost:8080/payment/success`;
+      const failureUrl =
+        env.MERCADOPAGO_FAILURE_URL?.trim() || `http://localhost:8080//payment/failure`;
+      const pendingUrl =
+        env.MERCADOPAGO_PENDING_URL?.trim() || `$http://localhost:8080//payment/pending`;
 
       if (!successUrl || !failureUrl || !pendingUrl) {
         throw new Error('URLs de retorno não configuradas');

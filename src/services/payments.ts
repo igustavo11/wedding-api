@@ -26,6 +26,10 @@ class PaymentsService {
   }
 
   async createPayment(params: CreatePaymentParams) {
+    if (!process.env.MERCADOPAGO_ACCESS_TOKEN) {
+      throw new Error('Mercado Pago não está configurado. Entre em contato com o administrador.');
+    }
+
     const cleanedTaxId = this.cleanTaxId(params.buyerTaxId);
 
     const [gift] = await db.select().from(gifts).where(eq(gifts.id, params.giftId)).limit(1);
@@ -143,7 +147,6 @@ class PaymentsService {
     }
 
     if (purchase.paymentStatus === 'paid') {
-      console.log(`⚠️  Pagamento #${purchaseId} já estava como pago. Pulando processamento.`);
       return;
     }
 
@@ -156,10 +159,6 @@ class PaymentsService {
       .where(eq(purchases.id, purchaseId));
 
     await db.update(gifts).set({ available: false }).where(eq(gifts.id, purchase.giftId));
-
-    console.log(
-      `✅ Pagamento aprovado para compra #${purchaseId} - Presente marcado como indisponível`
-    );
   }
 
   async handlePaymentExpired(purchaseId: number) {
@@ -182,8 +181,6 @@ class PaymentsService {
       .where(eq(purchases.id, purchaseId));
 
     await db.update(gifts).set({ available: true }).where(eq(gifts.id, purchase.giftId));
-
-    console.log(`⏰ Pagamento expirado para compra #${purchaseId}`);
   }
 
   async handlePaymentFailed(purchaseId: number) {
@@ -206,8 +203,6 @@ class PaymentsService {
       .where(eq(purchases.id, purchaseId));
 
     await db.update(gifts).set({ available: true }).where(eq(gifts.id, purchase.giftId));
-
-    console.log(`❌ Pagamento falhou para compra #${purchaseId}`);
   }
 
   async cancelPayment(purchaseId: number) {
@@ -234,8 +229,6 @@ class PaymentsService {
       .where(eq(purchases.id, purchaseId));
 
     await db.update(gifts).set({ available: true }).where(eq(gifts.id, purchase.giftId));
-
-    console.log(`❌ Pagamento cancelado para compra #${purchaseId}`);
   }
 
   async listPurchases(filters?: { status?: string; giftId?: number }) {
@@ -285,93 +278,90 @@ class PaymentsService {
           payment = await mercadoPagoClient.getPayment(paymentId);
         } catch (error: any) {
           if (error?.status === 404 || error?.error === 'not_found') {
-            console.warn(
-              `Pagamento ${paymentId} não encontrado. Pode ser uma notificação de preferência ou pagamento ainda não criado.`
-            );
-
             try {
               const preference = await mercadoPagoClient.getPreference(paymentId);
               const preferenceId = preference.id || paymentId;
 
-              const purchases = await this.listPurchases();
-              const purchase = purchases.find((p) => p.paymentId === preferenceId);
+              const purchasesList = await this.listPurchases();
+              const purchase = purchasesList.find((p) => p.paymentId === preferenceId);
 
               if (purchase) {
-                console.log(
-                  `Notificação recebida para preferência ${preferenceId}. Verificando pagamentos associados...`
-                );
                 return { purchaseId: purchase.id, status: 'notification_received' };
               }
 
               return null;
-            } catch (prefError) {
-              console.warn('Erro ao buscar preferência:', prefError);
+            } catch {
               return null;
             }
           }
           throw error;
         }
 
+        // O payment.preference_id contém o ID da preferência criada
         const preferenceId = (payment as any).preference_id;
 
         if (!preferenceId) {
-          console.warn('Preference ID não encontrado no pagamento:', paymentId);
-          const metadata = (payment as any).metadata || {};
-          const giftId = metadata.giftId;
+          // Tentar usar external_reference para encontrar a compra
+          const externalReference = (payment as any).external_reference;
 
-          if (giftId) {
-            const purchases = await this.listPurchases({ giftId: Number(giftId) });
-            const purchase = purchases.find(
-              (p) => p.paymentStatus === 'pending' && p.paymentMethod === 'card'
-            );
+          if (externalReference?.includes('gift-')) {
+            // external_reference no formato: gift-{giftId}-{preferenceId}-{timestamp}
+            const match = externalReference.match(/gift-(\d+)-/);
+            if (match) {
+              const foundGiftId = Number(match[1]);
 
-            if (purchase) {
-              if (purchase.paymentStatus === 'paid') {
-                console.log(`⚠️  Compra #${purchase.id} já está como paga. Pulando processamento.`);
-                return { purchaseId: purchase.id, status: 'already_processed' };
-              }
+              const purchasesList = await this.listPurchases({ giftId: foundGiftId });
 
-              const paymentStatus = (payment as any).status;
-              const _paymentMethodId = (payment as any).payment_method_id;
+              const purchase = purchasesList.find(
+                (p) =>
+                  p.paymentStatus === 'pending' &&
+                  (p.paymentMethod === 'card' || p.paymentMethod === 'pix')
+              );
 
-              if (paymentStatus === 'approved') {
-                await this.handlePaymentSuccess(purchase.id);
-                return { purchaseId: purchase.id, status: 'approved' };
-              }
-
-              if (paymentStatus === 'rejected' || paymentStatus === 'cancelled') {
-                if (purchase.paymentStatus !== 'failed') {
-                  await this.handlePaymentFailed(purchase.id);
+              if (purchase) {
+                if (purchase.paymentStatus === 'paid') {
+                  return { purchaseId: purchase.id, status: 'already_processed' };
                 }
-                return { purchaseId: purchase.id, status: 'failed' };
-              }
 
-              if (paymentStatus === 'expired' || paymentStatus === 'refunded') {
-                if (purchase.paymentMethod === 'pix') {
+                const paymentStatus = (payment as any).status;
+
+                if (paymentStatus === 'approved') {
+                  await this.handlePaymentSuccess(purchase.id);
+                  return { purchaseId: purchase.id, status: 'approved' };
+                }
+
+                if (paymentStatus === 'rejected' || paymentStatus === 'cancelled') {
+                  if (purchase.paymentStatus !== 'failed') {
+                    await this.handlePaymentFailed(purchase.id);
+                  }
+                  return { purchaseId: purchase.id, status: 'failed' };
+                }
+
+                if (paymentStatus === 'expired' || paymentStatus === 'refunded') {
                   await this.handlePaymentExpired(purchase.id);
                   return { purchaseId: purchase.id, status: 'expired' };
                 }
-              }
 
-              return { purchaseId: purchase.id, status: paymentStatus };
+                if (paymentStatus === 'pending' || paymentStatus === 'in_process') {
+                  return { purchaseId: purchase.id, status: 'pending' };
+                }
+
+                return { purchaseId: purchase.id, status: paymentStatus };
+              }
             }
           }
 
           return null;
         }
 
-        const purchases = await this.listPurchases();
-        const purchase = purchases.find((p) => p.paymentId === preferenceId);
+        const purchasesList = await this.listPurchases();
+        const purchase = purchasesList.find((p) => p.paymentId === preferenceId);
 
         if (!purchase) {
-          console.warn('Compra não encontrada para preference_id:', preferenceId);
           return null;
         }
 
         if (purchase.paymentStatus === 'paid') {
-          console.log(
-            `⚠️  Compra #${purchase.id} já está como paga. Pulando processamento do webhook.`
-          );
           return { purchaseId: purchase.id, status: 'already_processed' };
         }
 
@@ -381,17 +371,10 @@ class PaymentsService {
         if (paymentMethodId) {
           const detectedMethod: 'pix' | 'card' = paymentMethodId === 'pix' ? 'pix' : 'card';
           if (purchase.paymentMethod !== detectedMethod) {
-            const [updatedPurchase] = await db
+            await db
               .update(purchases)
               .set({ paymentMethod: detectedMethod })
-              .where(eq(purchases.id, purchase.id))
-              .returning();
-
-            if (updatedPurchase) {
-              console.log(
-                `🔍 Método de pagamento detectado: ${detectedMethod} para compra #${purchase.id}`
-              );
-            }
+              .where(eq(purchases.id, purchase.id));
           }
         }
 
@@ -442,8 +425,6 @@ class PaymentsService {
     }
 
     if (type === 'merchant_order') {
-      const orderId = notificationData.id;
-      console.log('Notificação de merchant_order recebida:', orderId);
       return null;
     }
 
